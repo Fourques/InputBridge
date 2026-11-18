@@ -1,0 +1,25 @@
+.DS_Store
+__pycache__/
+*.pyc
+research/upstream/
+research/verification.json
+local/
+.venv/
+build/
+dist/
+*.egg-info/
+*.spec
+!packaging/*.spec
+
+# Local machine and release outputs (not public source).
+/CONTINUE-HERE.md
+/Start InputBridge.command
+/docs/Real-machine-*.md
+/docs/Verification-*.md
+/scripts/input_cutover_guard.py
+/tests/test_cutover_guard.py
+*.log
+*.pem
+*.key
+*.p12
+*.pfx

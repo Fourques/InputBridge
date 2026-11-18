@@ -1,0 +1,7 @@
+# Runtime versions used for the 0.2 development builds.
+PySide6-Essentials==6.7.3
+shiboken6==6.7.3
+cryptography==46.0.7
+cffi==2.0.0
+pycparser==2.23
+typing-extensions==4.16.0

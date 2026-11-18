@@ -1,0 +1,8 @@
+{
+  "repository": "https://github.com/deskflow/deskflow.git",
+  "tag": "v1.27.0",
+  "commit": "081f6478e654a112168879e67a41ce7d7e4ae3af",
+  "target": "deskflow-core",
+  "output": "inputbridge-core",
+  "license": "GPL-2.0-only WITH LicenseRef-OpenSSL-Exception"
+}

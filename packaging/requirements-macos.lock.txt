@@ -1,0 +1,9 @@
+# Application freezer and its tools, from the verified Mac build environment.
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.10
+altgraph==0.17.5
+macholib==1.16.4
+packaging==26.3
+setuptools==82.0.1
+importlib-metadata==8.7.1; python_version < "3.10"
+zipp==3.23.1; python_version < "3.10"

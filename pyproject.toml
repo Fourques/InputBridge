@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "inputbridge-desktop"
+dynamic = ["version"]
+description = "Local keyboard, mouse, and file sharing between computers"
+requires-python = ">=3.9"
+license = {text = "GPL-3.0-or-later"}
+dependencies = ["PySide6-Essentials>=6.7,<6.8", "cryptography>=42,<47"]
+
+[project.scripts]
+inputbridge = "inputbridge.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["inputbridge*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "inputbridge.__version__"}

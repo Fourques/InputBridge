@@ -1,0 +1,56 @@
+{
+  "qt_version": "6.7.3",
+  "source": "src/corelib/mimetypes/3rdparty/tika-mimetypes.xml",
+  "source_sha256": "4ae4a0aa7f2ec65dfedbe98278b33ce87064c6c5812d77a80b7d38f6bb4ed63f",
+  "source_license": "Apache-2.0",
+  "tested_qtcore": [
+    {
+      "sample": "macOS arm64 frozen development package",
+      "sha256": "ac6c75fcdaf1568615d7acf2ca3d679e81f9b48913ae41c0bd3f4f41cfbabb4c",
+      "exact_match_compression": "gzip"
+    },
+    {
+      "sample": "Linux x86_64 Qt for Python reference runtime (not shipped in the Linux archive)",
+      "sha256": "c17a44d2bcd559592f2be5229909430c147df1b24fecdcec75a6984a939276f4",
+      "exact_match_compression": "zstd"
+    }
+  ],
+  "mac_reference_wheel_arm64_matches": [
+    {
+      "library": "PySide6/Qt/lib/QtCore.framework/Versions/A/QtCore",
+      "arm64_uuid": "5E316915-192D-32AE-B085-7C0986279324",
+      "wheel_match": true
+    },
+    {
+      "library": "PySide6/Qt/lib/QtGui.framework/Versions/A/QtGui",
+      "arm64_uuid": "3EFE39E7-026F-3417-94B4-BE4F2EC95E51",
+      "wheel_match": true
+    },
+    {
+      "library": "PySide6/Qt/lib/QtWidgets.framework/Versions/A/QtWidgets",
+      "arm64_uuid": "6B195F36-D220-34C8-AFD3-7CAA96572118",
+      "wheel_match": true
+    },
+    {
+      "library": "PySide6/Qt/lib/QtDBus.framework/Versions/A/QtDBus",
+      "arm64_uuid": "D5CB7913-29BA-3362-8F22-91B25E5F4250",
+      "wheel_match": true
+    },
+    {
+      "library": "PySide6/Qt/lib/QtNetwork.framework/Versions/A/QtNetwork",
+      "arm64_uuid": "C733A080-E019-3FCD-8938-BA01BB37C481",
+      "wheel_match": true
+    },
+    {
+      "library": "PySide6/Qt/lib/QtSvg.framework/Versions/A/QtSvg",
+      "arm64_uuid": "02114EA2-50C1-37B9-93ED-521C1A24DFCE",
+      "wheel_match": true
+    },
+    {
+      "library": "shiboken6/libshiboken6.abi3.6.7.dylib",
+      "arm64_uuid": "3DCE53BC-FEC7-34B8-B5E6-613F18248DCA",
+      "wheel_match": true
+    }
+  ],
+  "distribution_status": "Public binary distribution blocked pending compatible engine Qt build or explicit licensing resolution."
+}

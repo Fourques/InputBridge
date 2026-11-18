@@ -1,0 +1,10 @@
+{
+  "component": "TwinDesk Drag.swift",
+  "repository": "https://github.com/InukaAsith/TwinDesk",
+  "commit": "375fae38e9408eaa2ab7acd652e11cd32b63bc37",
+  "path": "mac-helper/Sources/macshare-helper/Drag.swift",
+  "sha256": "0dabc8ea5c5d397705317208f8abd22ed847d708d406c812d7940b2f094a7017",
+  "license": "GPL-3.0-only",
+  "copyright": "2026 inukaasith",
+  "integration": "Verbatim file; InputBridge uses separate Swift entry point and edge capture."
+}
