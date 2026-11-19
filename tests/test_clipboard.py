@@ -32,7 +32,7 @@ class ClipboardTests(unittest.TestCase):
             path.write_text("hello")
             self.adapter.publish([path], "offer1")
             mime = self.clipboard.mimeData()
-            self.assertEqual(mime.urls()[0].toLocalFile(), str(path))
+            self.assertEqual(Path(mime.urls()[0].toLocalFile()), path)
             self.assertTrue(mime.hasFormat(ORIGIN_MIME))
             self.assertTrue(bytes(mime.data("x-special/gnome-copied-files")).startswith(b"copy\nfile:"))
             self.assertFalse(self.events)

@@ -20,7 +20,7 @@ class NativeDragTests(unittest.TestCase):
         path = Path('/tmp/中文 文件夹').resolve()
         future.set_result([path])
         mime = LazyFiles(future, 'a'*32)
-        self.assertEqual([u.toLocalFile() for u in mime.urls()], [str(path)])
+        self.assertEqual([Path(u.toLocalFile()) for u in mime.urls()], [path])
         uri = bytes(mime.data('text/uri-list'))
         self.assertTrue(uri.startswith(b'file:///'))
         self.assertIn(b'%20', uri)

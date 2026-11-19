@@ -7,11 +7,21 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 from inputbridge.files import (Cancelled, TransferError, build_offer, receive_offer,
                                validate_manifest)
 from inputbridge.security import decode_invite, encode_invite, request_json
-from inputbridge.service import Service, SendBudget
+from inputbridge.service import SendBudget, Server, Service
+
+
+class ServerTests(unittest.TestCase):
+    def test_loopback_bind_does_not_need_reverse_dns(self):
+        with patch('socket.getfqdn', side_effect=AssertionError('Unexpected reverse DNS lookup')):
+            with Server(('127.0.0.1', 0), None) as server:
+                self.assertEqual(server.server_name, '127.0.0.1')
+                self.assertEqual(server.server_port, server.socket.getsockname()[1])
+                self.assertGreater(server.server_port, 0)
 
 
 class ManifestTests(unittest.TestCase):

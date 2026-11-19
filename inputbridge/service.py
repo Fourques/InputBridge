@@ -10,6 +10,7 @@ from pathlib import Path
 import queue
 import secrets
 import socket
+from socketserver import TCPServer
 import threading
 import time
 import uuid
@@ -45,6 +46,12 @@ class Server(ThreadingHTTPServer):
         self.service = service
         self.slots = threading.BoundedSemaphore(8)
         super().__init__(address, Handler)
+
+    def server_bind(self):
+        # HTTPServer normally resolves the address in reverse before listening.
+        # InputBridge advertises an explicit address, so startup needs only the socket.
+        TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
 
     def get_request(self):
         connection, address = self.socket.accept()

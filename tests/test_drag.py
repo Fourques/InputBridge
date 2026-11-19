@@ -1,5 +1,6 @@
 import concurrent.futures
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 import uuid
@@ -61,10 +62,16 @@ class DragTests(unittest.TestCase):
         finally:
             other.stop()
 
-    def test_drop_destination_is_native_local_and_exclusive(self):
+    def test_drop_destination_is_exclusive_on_supported_platforms(self):
         ident, _ = self.offer()
         source = self.b.drags.receive(ident)[0]
         destination = self.root/'chosen by native target'
+        if sys.platform not in ('darwin', 'linux'):
+            with self.assertRaisesRegex(TransferError, '尚未实现'):
+                commit_native_destination(source, destination, self.b.profile/'cache')
+            self.assertFalse(destination.exists())
+            self.assertEqual(list(self.root.glob('.inputbridge-*')), [])
+            return
         commit_native_destination(source, destination, self.b.profile/'cache')
         self.assertEqual((destination/'data.bin').read_bytes(), (self.folder/'data.bin').read_bytes())
         (destination/'data.bin').write_bytes(b'keep this')
