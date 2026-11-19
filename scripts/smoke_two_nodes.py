@@ -101,7 +101,7 @@ def main():
             print(json.dumps({"result": "passed", "processes": 2, "directions": ["A→B", "B→A"],
                 "transport": "pinned TLS over localhost", "tree_entries": len(expected),
                 "checks": ["binary SHA-256", "Unicode and spaces", "empty file", "empty directory"],
-                "native_file_manager_paste": "not tested", "cross_os": "not tested"}, ensure_ascii=False, indent=2))
+                "native_file_manager_paste": "not tested", "cross_os": "not tested"}, indent=2))
         finally:
             for connection in connections:
                 try:
