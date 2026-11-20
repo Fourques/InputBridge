@@ -318,6 +318,8 @@ def commit_native_destination(source, destination, cache_root, cancel=None):
     source, destination = Path(source), Path(destination)
     if source.is_symlink() or not source.resolve().is_relative_to(Path(cache_root).resolve()):
         raise TransferError('拖放缓存无效')
+    if sys.platform != 'darwin' and not sys.platform.startswith('linux'):
+        raise TransferError('此系统的原生拖放尚未实现')
     if not destination.is_absolute() or destination.name in ('', '.', '..'):
         raise TransferError('原生拖放目标无效')
     parent = destination.parent.resolve(strict=True)
