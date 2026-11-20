@@ -59,11 +59,14 @@ source archive in the [source manifest](third_party/SOURCE-MATERIALS.json).
 
 ## TwinDesk native drag source
 
-[native/drag/macos/Drag.swift](native/drag/macos/Drag.swift) is a verbatim copy of
+[native/drag/macos/Drag.swift](native/drag/macos/Drag.swift) is derived from
 [TwinDesk’s Drag.swift](https://raw.githubusercontent.com/InukaAsith/TwinDesk/375fae38e9408eaa2ab7acd652e11cd32b63bc37/mac-helper/Sources/macshare-helper/Drag.swift)
 at commit `375fae38e9408eaa2ab7acd652e11cd32b63bc37`.
 Copyright (C) 2026 inukaasith; the file declares GPL-3.0 and the project retains
 the [upstream GPLv3 text](third_party/licenses/TwinDesk/LICENSE.txt).
+InputBridge modified drag session scoping, button release, file promise cleanup
+and previews. The upstream and local file hashes are recorded in
+[vendor.json](native/drag/macos/vendor.json).
 It is built with the original InputBridge Swift entry point and edge capture
 into the separate GPLv3 native drag helper, not linked into the Deskflow core.
 No TwinDesk app, UI, or runtime installation is shipped.

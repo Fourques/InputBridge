@@ -1,3 +1,4 @@
+import base64
 import copy
 from io import BytesIO
 import json
@@ -167,6 +168,15 @@ class NetworkTests(unittest.TestCase):
         self.assertGreaterEqual(time.monotonic() - started, 1.8)
         self.assertEqual(Path(event['paths'][0]).read_bytes(), source.read_bytes())
 
+    def test_embedded_clipboard_image_uses_existing_authenticated_file_transport(self):
+        image = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5ioAAAAASUVORK5CYII=")
+        self.pair()
+        self.a.clipboard_changed(image).result(timeout=10)
+        self.assertTrue(self.b.poll_peer(self.a.device_id))
+        received = self.wait_ready(self.b)
+        self.assertTrue(received["image"])
+        self.assertEqual(Path(received["paths"][0]).read_bytes(), image)
+
     def test_invitation_is_one_time_and_expiry_is_enforced(self):
         invite = self.a.create_invite()
         self.b.pair(invite)
@@ -181,6 +191,21 @@ class NetworkTests(unittest.TestCase):
         self.pair()
         source = self.root / "immediate.txt"
         source.write_bytes(b"new copy after pairing")
+        self.a.clipboard_changed([source]).result(timeout=10)
+        self.assertTrue(self.b.poll_peer(self.a.device_id))
+        self.assertEqual(Path(self.wait_ready(self.b)["paths"][0]).read_bytes(), source.read_bytes())
+
+    def test_legacy_auto_receive_setting_cannot_disable_paste(self):
+        self.pair()
+        self.b.stop()
+        config = self.b.config_path
+        settings = json.loads(config.read_text())
+        config.write_text(json.dumps(dict(settings, auto_receive=False)))
+        self.b = Service(config.parent)
+        self.b.start("127.0.0.1", 0, "127.0.0.1", polling=False)
+        self.assertTrue(self.b.poll_peer(self.a.device_id))
+        source = self.root / "copy.png"
+        source.write_bytes(b"file payload")
         self.a.clipboard_changed([source]).result(timeout=10)
         self.assertTrue(self.b.poll_peer(self.a.device_id))
         self.assertEqual(Path(self.wait_ready(self.b)["paths"][0]).read_bytes(), source.read_bytes())

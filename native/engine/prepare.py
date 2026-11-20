@@ -103,9 +103,12 @@ set(CMAKE_AUTOMOC ON)''')
     replace('src/lib/deskflow/ipc/CoreIpcServer.h', '#include <QSet>', '#include <QSet>\n#include <atomic>')
     replace('src/lib/deskflow/ipc/CoreIpcServer.h', '  static CoreIpcServer &instance();',
             '  static CoreIpcServer &instance();\n  bool fileDragAllowed() const;\n'
+            '  void disarmFileDrag() { m_dragUntil.store(0); m_dragReturnUntil.store(0); }\n'
+            '  void allowFileDragReturn();\n  bool fileDragReturnAllowed() const;\n'
             '  unsigned int wheelOptions() const { return m_wheel.load(); }')
     replace('src/lib/deskflow/ipc/CoreIpcServer.h', 'private:\n',
-            'private:\n  std::atomic<long long> m_dragUntil{0};\n  std::atomic_uint m_wheel{0};\n')
+            'private:\n  std::atomic<long long> m_dragUntil{0};\n'
+            '  std::atomic<long long> m_dragReturnUntil{0};\n  std::atomic_uint m_wheel{0};\n')
     replace('src/lib/deskflow/ipc/CoreIpcServer.cpp', '#include <QLocalSocket>', '#include <QLocalSocket>\n#include <chrono>')
     replace('src/lib/deskflow/ipc/CoreIpcServer.cpp', '  s_instance = this;',
             '  s_instance = this;\n  const auto wheel = qEnvironmentVariableIntValue("INPUTBRIDGE_WHEEL_OPTIONS");\n'
@@ -117,11 +120,26 @@ set(CMAKE_AUTOMOC ON)''')
   return now < m_dragUntil.load();
 }
 
+void CoreIpcServer::allowFileDragReturn()
+{
+  const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+    std::chrono::steady_clock::now().time_since_epoch()).count();
+  m_dragReturnUntil.store(now + 90000);
+}
+
+bool CoreIpcServer::fileDragReturnAllowed() const
+{
+  const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+    std::chrono::steady_clock::now().time_since_epoch()).count();
+  return now < m_dragReturnUntil.load();
+}
+
 void CoreIpcServer::processCommand''')
     replace('src/lib/deskflow/ipc/CoreIpcServer.cpp', '  Q_UNUSED(parts)', '''  if (command == QStringLiteral("file-drag")) {
     const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
       std::chrono::steady_clock::now().time_since_epoch()).count();
-    m_dragUntil.store(parts.value(1) == "1" ? now + 1500 : 0);
+    if (parts.value(1) == "1") m_dragUntil.store(now + 1500);
+    else disarmFileDrag();
     writeToClientSocket(clientSocket, QStringLiteral("ok"));
     return;
   }
@@ -150,10 +168,86 @@ static void inputbridgeEvent(const QJsonObject &event)
   fprintf(stdout, "IB_EVENT %s\\n", data.constData());
   fflush(stdout);
 }''')
+    for owner, path in [('Computer', 'src/lib/deskflow/Computer'), ('PrimaryClient', 'src/lib/server/PrimaryClient')]:
+        replace(path + '.h', 'bool isLockedToComputer() const;', 'bool isLockedToComputer(uint32_t *button = nullptr) const;')
+        replace(path + '.cpp', f'bool {owner}::isLockedToComputer() const',
+                f'bool {owner}::isLockedToComputer(uint32_t *button) const')
+    replace('src/lib/deskflow/Computer.cpp', '    LOG_DEBUG("locked by mouse buttonID: %d", buttonID);',
+            '    if (button) *button = buttonID;\n    LOG_DEBUG("locked by mouse buttonID: %d", buttonID);')
+    replace('src/lib/server/PrimaryClient.cpp', 'return m_computer->isLockedToComputer();',
+            'return m_computer->isLockedToComputer(button);')
+    x11 = 'src/lib/platform/XWindowsComputer.cpp'
+    replace(x11, 'bool XWindowsComputer::isAnyMouseButtonDown(uint32_t &) const',
+            'bool XWindowsComputer::isAnyMouseButtonDown(uint32_t &button) const')
+    replace(x11, '    return ((state & (Button1Mask | Button2Mask | Button3Mask | Button4Mask | Button5Mask)) != 0);',
+            '''    const auto held = state & (Button1Mask | Button2Mask | Button3Mask | Button4Mask | Button5Mask);
+    button = held == Button1Mask ? kButtonLeft : kButtonNone;
+    return held != 0;''')
     replace('src/lib/server/Server.h', '  bool m_enableClipboard = true;',
-            '  uint32_t m_inputbridgeButtons = 0;\n  bool m_enableClipboard = true;')
-    replace('src/lib/server/Server.cpp', '  if (m_primaryClient->isLockedToComputer()) {',
-            '  if (m_primaryClient->isLockedToComputer() && !deskflow::core::ipc::CoreIpcServer::instance().fileDragAllowed()) {')
+            '  uint32_t m_inputbridgeButtons = 0;\n'
+            '  BaseClientProxy *m_inputbridgeDragOrigin = nullptr;\n'
+            '  bool m_inputbridgeDragHorizontal = false;\n'
+            '  bool m_inputbridgeDragCanReturn = false;\n'
+            '  bool m_enableClipboard = true;')
+    replace('src/lib/server/Server.h', '  bool isLockedToComputer() const;',
+            '  bool isLockedToComputer() const;\n  uint32_t inputbridgeButtons() const;\n'
+            '  void updateFileDragReturn(int32_t x, int32_t y);')
+    replace('src/lib/server/Server.cpp', 'bool Server::isLockedToComputer() const', '''uint32_t Server::inputbridgeButtons() const
+{
+#if defined(Q_OS_LINUX)
+  // X11 apps can own the release event after the pointer returns to the primary screen.
+  uint32_t button = 0;
+  if (!m_primaryClient->isLockedToComputer(&button)) return 0;
+  return button == 1 ? (1u << 1) : 1u;
+#else
+  return m_inputbridgeButtons;
+#endif
+}
+
+bool Server::isLockedToComputer() const''')
+    replace('src/lib/server/Server.cpp', 'int32_t Server::getJumpZoneSize', '''void Server::updateFileDragReturn(int32_t x, int32_t y)
+{
+  if (!m_inputbridgeDragOrigin || m_inputbridgeDragCanReturn ||
+      !deskflow::core::ipc::CoreIpcServer::instance().fileDragReturnAllowed())
+    return;
+  int32_t ax, ay, aw, ah;
+  m_active->getShape(ax, ay, aw, ah);
+  // Move off the starting edge before allowing a deliberate trip back.
+  constexpr int margin = 32;
+  m_inputbridgeDragCanReturn = m_inputbridgeDragHorizontal
+      ? x >= ax + margin && x < ax + aw - margin
+      : y >= ay + margin && y < ay + ah - margin;
+}
+
+int32_t Server::getJumpZoneSize''')
+    replace('src/lib/server/Server.cpp', '''  // ignore if mouse is locked to computer and don't try to switch later
+  if (!preventSwitch && isLockedToComputer()) {''', '''  auto &dragIpc = deskflow::core::ipc::CoreIpcServer::instance();
+  const bool returningFile = m_inputbridgeDragCanReturn && newComputer == m_inputbridgeDragOrigin &&
+      dragIpc.fileDragReturnAllowed() && inputbridgeButtons() == (1u << 1);
+  if (!preventSwitch && !returningFile && isLockedToComputer()) {''')
+    replace('src/lib/server/Server.cpp', '''  return !preventSwitch;
+}
+
+void Server::noSwitch''', '''  if (!preventSwitch && !returningFile && dragIpc.fileDragAllowed())
+    m_inputbridgeDragHorizontal = dir == Direction::Left || dir == Direction::Right;
+  return !preventSwitch;
+}
+
+void Server::noSwitch''')
+    replace('src/lib/server/Server.cpp', '  m_x = x;\n  m_y = y;\n\n  // get computer shape',
+            '  m_x = x;\n  m_y = y;\n  updateFileDragReturn(x, y);\n\n  // get computer shape')
+    replace('src/lib/server/Server.cpp', '  m_x += dx;\n  m_y += dy;\n\n  // get computer shape',
+            '  m_x += dx;\n  m_y += dy;\n  updateFileDragReturn(m_x, m_y);\n\n  // get computer shape')
+    replace('src/lib/server/Server.cpp', '  if (m_primaryClient->isLockedToComputer()) {', '''  const auto buttons = inputbridgeButtons();
+#if defined(Q_OS_MACOS) || defined(Q_OS_LINUX)
+  // AppKit's synthetic drag press must not lock the hardware pointer to a screen.
+  const bool held = buttons != 0;
+#else
+  const bool held = buttons != 0 || m_primaryClient->isLockedToComputer();
+#endif
+  const bool fileHandoff = buttons == (1u << 1) &&
+      deskflow::core::ipc::CoreIpcServer::instance().fileDragAllowed();
+  if (held && !fileHandoff) {''')
     # The native receiver owns the initial press. Replaying it here delivers it
     # into the desktop before its drag source is mapped and steals the X11 grab.
     # Primary snapshots are refreshed on leave while a file button is down, but
@@ -167,6 +261,81 @@ static void inputbridgeEvent(const QJsonObject &event)
             '  if (event && CGEventGetIntegerValueField(event, kCGEventSourceUserData) == 0x49425247) return event;')
     # Separate physical wheels before the remote protocol drops the source.
     platform = 'src/lib/platform/'
+    # Give the application exclusive ownership of file/image clipboard formats.
+    # The keyboard core continues forwarding text and HTML separately.
+    replace('src/lib/deskflow/IClipboard.h', 'static bool copy(IClipboard *dst, const IClipboard *src, Time);',
+            'static bool copy(IClipboard *dst, const IClipboard *src, Time, bool textOnly = false);')
+    clipboard = 'src/lib/deskflow/IClipboard.cpp'
+    replace(clipboard, 'bool IClipboard::copy(IClipboard *dst, const IClipboard *src, Time time)',
+            'bool IClipboard::copy(IClipboard *dst, const IClipboard *src, Time time, bool textOnly)')
+    replace(clipboard, '  if (src->open(time)) {\n    if (dst->open(time)) {',
+            '''  if (src->open(time)) {
+    if (textOnly && !src->has(Format::Text) && !src->has(Format::HTML)) {
+      src->close();
+      return true;
+    }
+    if (dst->open(time)) {''')
+    replace(clipboard, '          if (src->has(eFormat)) {',
+            '          if ((!textOnly || eFormat != Format::Bitmap) && src->has(eFormat)) {')
+    replace(platform + 'OSXClipboard.h', '  bool synchronize();',
+            '  bool synchronize();\n  bool hasAsset() const;')
+    replace(platform + 'OSXClipboard.cpp', 'bool OSXClipboard::synchronize()', '''bool OSXClipboard::hasAsset() const
+{
+  PasteboardItemID item;
+  if (!m_pboard || PasteboardGetItemIdentifier(m_pboard, 1, &item) != noErr)
+    return false;
+
+  CFArrayRef flavors = nullptr;
+  if (PasteboardCopyItemFlavors(m_pboard, item, &flavors) != noErr || !flavors)
+    return false;
+  bool found = false;
+  for (CFIndex i = 0; i < CFArrayGetCount(flavors) && !found; ++i) {
+    auto flavor = static_cast<CFStringRef>(CFArrayGetValueAtIndex(flavors, i));
+    found = CFEqual(flavor, CFSTR("public.file-url")) ||
+        CFEqual(flavor, CFSTR("com.trolltech.anymime.application--x-inputbridge-origin")) ||
+        UTTypeConformsTo(flavor, kUTTypeImage);
+  }
+  CFRelease(flavors);
+  return found;
+}
+
+bool OSXClipboard::synchronize()''')
+    replace(platform + 'OSXComputer.mm', '  Clipboard::copy(dst, &m_pasteboard);',
+            '''  if (qEnvironmentVariableIsSet("INPUTBRIDGE_ASSET_CLIPBOARD") && m_pasteboard.hasAsset()) {
+    if (!dst->open(m_pasteboard.getTime())) return false;
+    dst->empty();
+    dst->close();
+    return true;
+  }
+  Clipboard::copy(dst, &m_pasteboard);''')
+    replace(platform + 'OSXComputer.mm', '    Clipboard::copy(&m_pasteboard, src);',
+            '''    Clipboard::copy(&m_pasteboard, src, src->getTime(),
+                    qEnvironmentVariableIsSet("INPUTBRIDGE_ASSET_CLIPBOARD"));''')
+    replace(platform + 'XWindowsClipboard.cpp',
+            '#include <X11/Xatom.h>', '#include <QtGlobal>\n#include <X11/Xatom.h>')
+    x11_targets = '  LOG_DEBUG("  available targets: %s", XWindowsUtil::atomsToString(m_display, targets, numTargets).c_str());'
+    replace(platform + 'XWindowsClipboard.cpp', x11_targets, x11_targets + '''
+  if (m_id == kClipboardClipboard && qEnvironmentVariableIsSet("INPUTBRIDGE_ASSET_CLIPBOARD")) {
+    const char *const assetTypes[] = {"application/x-inputbridge-origin", "x-special/gnome-copied-files",
+        "application/x-kde-cutselection", "image/png", "image/jpeg", "image/webp", "image/tiff",
+        "image/gif", "image/bmp", "image/x-bmp", "application/x-qt-image"};
+    for (const auto type : assetTypes) {
+      const auto atom = XInternAtom(m_display, type, True);
+      if (atom != None && std::find(targets, targets + numTargets, atom) != targets + numTargets)
+        return;
+    }
+  }''')
+    replace(platform + 'XWindowsComputer.cpp',
+            '#include <X11/X.h>', '#include <QtGlobal>\n#include <X11/X.h>')
+    replace(platform + 'XWindowsComputer.cpp',
+            'bool XWindowsComputer::setClipboard(ClipboardID id, const IClipboard *clipboard)\n{',
+            '''bool XWindowsComputer::setClipboard(ClipboardID id, const IClipboard *clipboard)
+{
+  const bool textOnly = id == kClipboardClipboard && qEnvironmentVariableIsSet("INPUTBRIDGE_ASSET_CLIPBOARD");
+  if (textOnly && !clipboard) return true;
+''')
+    replace(platform + 'XWindowsComputer.cpp', '    return Clipboard::copy(m_clipboard[id], clipboard, timestamp);',
+            '    return Clipboard::copy(m_clipboard[id], clipboard, timestamp, textOnly);')
     for name in ['WheelMotion.h', 'MacWheel.h']:
         add(platform + 'InputBridge' + name, (HERE / 'wheel' / name).read_text())
     replace(platform + 'OSXComputer.h', '#include <bitset>',
@@ -220,16 +389,27 @@ static void inputbridgeEvent(const QJsonObject &event)
     computer->onMouseButton(true''', '''  case kCGEventOtherMouseDown:
     computer->m_inputbridgeWheel.cancel();
     computer->onMouseButton(true''')
+    replace('src/lib/server/Server.cpp', '    // leave active computer',
+            '    const auto inputbridgeHeldButtons = inputbridgeButtons();\n    // leave active computer')
     replace('src/lib/server/Server.cpp', '    // cut over\n    m_active = dst;',
-            '    const auto inputbridgePrevious = getName(m_active);\n    // cut over\n    m_active = dst;')
+            '''    const auto inputbridgePrevious = getName(m_active);
+    auto &dragIpc = deskflow::core::ipc::CoreIpcServer::instance();
+    const bool forwardFile = dragIpc.fileDragAllowed() && inputbridgeHeldButtons == (1u << 1);
+    dragIpc.disarmFileDrag();
+    m_inputbridgeDragOrigin = forwardFile ? m_active : nullptr;
+    m_inputbridgeDragCanReturn = false;
+    if (forwardFile) dragIpc.allowFileDragReturn();
+    // cut over
+    m_active = dst;''')
     replace('src/lib/server/Server.cpp', '    // increment enter sequence number', '''    inputbridgeEvent({{"event", "focus"}, {"from", QString::fromStdString(inputbridgePrevious)},
       {"to", QString::fromStdString(getName(dst))}, {"x", x}, {"y", y},
-      {"buttons", static_cast<int>(m_inputbridgeButtons)}});
+      {"buttons", static_cast<int>(inputbridgeHeldButtons)}});
 
     // increment enter sequence number''')
     replace('src/lib/server/Server.cpp', '  LOG_VERBOSE("onMouseDown id=%d", id);',
             '  if (id < 32) m_inputbridgeButtons |= (1u << id);\n  LOG_VERBOSE("onMouseDown id=%d", id);')
     replace('src/lib/server/Server.cpp', '  LOG_VERBOSE("onMouseUp id=%d", id);', '''  if (id < 32) m_inputbridgeButtons &= ~(1u << id);
+  if (id == 1) deskflow::core::ipc::CoreIpcServer::instance().disarmFileDrag();
   inputbridgeEvent({{"event", "button-up"}, {"button", static_cast<int>(id)},
     {"screen", QString::fromStdString(getName(m_active))}, {"x", m_x}, {"y", m_y}});
   LOG_VERBOSE("onMouseUp id=%d", id);''')

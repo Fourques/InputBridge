@@ -75,15 +75,23 @@ reader.readabilityHandler = { handle in
                       items.allSatisfy({ safeName(($0["name"] as? String) ?? "") }) else {
                     emit(["event": "dragEnded", "drag": drag, "result": "failed"]); return
                 }
-                DragIn.shared.start(drag: drag, items: items)
+                DragIn.shared.start(drag: drag, items: items, preview: command["preview"] as? String)
+            case "resumeLocal":
+                guard AXIsProcessTrusted(), let paths = command["paths"] as? [String],
+                      !paths.isEmpty, paths.count <= 64 else {
+                    emit(["event": "dragEnded", "drag": drag, "result": "failed"]); return
+                }
+                DragIn.shared.startLocal(drag: drag, paths: paths, preview: command["preview"] as? String)
             case "written":
                 if let index = command["index"] as? Int {
                     DragIn.shared.written(drag: drag, index: index, error: command["error"] as? String)
                 }
-            case "cancel": DragIn.shared.cancel()
-            case "buttonUp": _ = DragIn.shared.buttonUp()
+            case "cancel": DragIn.shared.cancel(drag: drag)
+            case "buttonUp": DragIn.shared.buttonUp(drag: drag)
             case "swallow":
-                if AXIsProcessTrusted() { DragIn.shared.swallowLocalDrag(at: CGEvent(source: nil)?.location ?? .zero) }
+                if AXIsProcessTrusted() {
+                    DragIn.shared.swallowLocalDrag(drag: drag, at: CGEvent(source: nil)?.location ?? .zero)
+                }
             default: break
             }
         }

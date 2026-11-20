@@ -51,7 +51,7 @@ final class EdgeCapture {
             panel.contentView = view; panels.append(panel)
         }
         timer = Timer.scheduledTimer(withTimeInterval: 1.0/60, repeats: true) { [weak self] _ in
-            let held = NSEvent.pressedMouseButtons & 1 != 0
+            let held = NSEvent.pressedMouseButtons & 1 != 0 && !DragIn.shared.capturingInitialPress
             self?.panels.forEach { held ? $0.orderFrontRegardless() : $0.orderOut(nil) }
         }
     }

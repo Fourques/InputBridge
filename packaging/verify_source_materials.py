@@ -29,8 +29,11 @@ def main():
             parser.error('Unexpected path or SHA-256: ' + item['file'])
         print(item['file'] + ': OK')
     provenance = json.loads((ROOT / 'native/drag/macos/vendor.json').read_text())
-    if digest(ROOT / 'native/drag/macos/Drag.swift') != provenance['sha256']:
-        parser.error('TwinDesk source differs from the declared verbatim file; review and document any changes.')
+    upstream_hash = next(item['sha256'] for item in lock['archives'] if item['component'] == 'TwinDesk Drag.swift')
+    if upstream_hash != provenance['sha256']:
+        parser.error('TwinDesk upstream sources disagree about the pinned hash')
+    if digest(ROOT / 'native/drag/macos/Drag.swift') != provenance.get('local_sha256', upstream_hash):
+        parser.error('Local TwinDesk-derived source differs from the documented revision')
     license_hash = next(item['sha256'] for item in lock['archives'] if item['component'] == 'TwinDesk GPLv3 text')
     if digest(ROOT / 'third_party/licenses/TwinDesk/LICENSE.txt') != license_hash:
         parser.error('TwinDesk license text does not match the pinned copy')

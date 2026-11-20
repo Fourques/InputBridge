@@ -1,6 +1,7 @@
 """Bounded file offers and private, transactional receive staging."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
+from io import BytesIO
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -14,6 +15,7 @@ import uuid
 CHUNK = 256 * 1024
 MAX_ENTRIES = 10000
 MAX_BYTES = 64 * 1024**3
+MAX_IMAGE_BYTES = 32 * 1024**2
 OFFER_TTL = 30 * 60
 ID = re.compile(r"^[0-9a-f]{32}$")
 RESERVED = re.compile(r"^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)", re.I)
@@ -55,8 +57,14 @@ class Offer:
     sources: dict
     stamps: dict
     expires: float
+    image: bytes = b""
+    tree: dict = field(default_factory=dict)
 
     def open_file(self, entry_id):
+        if self.image:
+            if time.monotonic() > self.expires or entry_id != self.manifest["entries"][0]["id"]:
+                raise TransferError("复制的图片已过期，请重新复制")
+            return BytesIO(self.image)
         if time.monotonic() > self.expires or entry_id not in self.sources:
             raise TransferError("复制的文件已过期，请重新复制")
         fd = os.open(self.sources[entry_id], os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
@@ -67,9 +75,24 @@ class Offer:
             raise TransferError("源文件已改变，请重新复制")
         return handle
 
+    def file_size(self, entry_id):
+        return len(self.image) if self.image else self.stamps[entry_id][2]
+
+
+def build_image_offer(image):
+    if not 0 < len(image) <= MAX_IMAGE_BYTES or not image.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise TransferError("图片无效或超过 32 MiB")
+    name = "图片.png"
+    entry = {"id": uuid.uuid4().hex, "path": name, "kind": "file", "size": len(image),
+             "sha256": hashlib.sha256(image).hexdigest()}
+    manifest = {"version": 1, "id": uuid.uuid4().hex, "roots": [name],
+                "entries": [entry], "total_bytes": len(image), "clipboard_image": True}
+    return Offer(manifest, {}, {}, time.monotonic() + OFFER_TTL, image)
+
 
 def build_offer(paths, cancel=None):
     entries, sources, stamps, roots, names = [], {}, {}, [], set()
+    tree = {}
     total = 0
 
     def visit(path, relative):
@@ -87,6 +110,7 @@ def build_offer(paths, cancel=None):
         if len(entries) >= MAX_ENTRIES:
             raise TransferError("单次复制最多包含 10000 个文件和目录")
         item = {"id": uuid.uuid4().hex, "path": relative}
+        tree[relative] = (str(path), stat.S_IFMT(info.st_mode), stamp(info))
         if stat.S_ISDIR(info.st_mode):
             item["kind"] = "directory"
             entries.append(item)
@@ -127,7 +151,7 @@ def build_offer(paths, cancel=None):
         raise TransferError("没有选中文件")
     manifest = {"version": 1, "id": uuid.uuid4().hex, "roots": roots,
                 "entries": entries, "total_bytes": total}
-    return Offer(manifest, sources, stamps, time.monotonic() + OFFER_TTL)
+    return Offer(manifest, sources, stamps, time.monotonic() + OFFER_TTL, tree=tree)
 
 
 def validate_manifest(data):
@@ -172,6 +196,11 @@ def validate_manifest(data):
         raise TransferError("传输总量不合法")
     if any(r not in known for r in roots):
         raise TransferError("缺少顶层文件")
+    if "clipboard_image" in data and (
+            data["clipboard_image"] is not True or len(entries) != 1 or
+            entries[0]["kind"] != "file" or not roots[0].lower().endswith(".png") or
+            not 0 < total <= MAX_IMAGE_BYTES):
+        raise TransferError("图片剪贴板清单无效")
     return data
 
 

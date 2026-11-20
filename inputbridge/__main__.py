@@ -71,6 +71,7 @@ def main():
         if window:
             window.engine.stop()
         if service:
+            service.event_wakeup = None
             service.stop()
         lock.unlock()
         if preview_profile:

@@ -15,7 +15,7 @@ import threading
 import time
 import uuid
 
-from .files import (Cancelled, CHUNK, Offer, TransferError, build_offer,
+from .files import (Cancelled, CHUNK, Offer, TransferError, build_image_offer, build_offer,
                     check_cancel, receive_offer, validate_manifest, ID)
 from .security import (MAX_JSON, PinnedConnection, atomic_json, decode_invite,
                        encode_invite, identity, request_json, validate_device)
@@ -117,9 +117,9 @@ class Handler(BaseHTTPRequestHandler):
                     raise TransferError('拖放请求过大')
                 data = json.loads(self.rfile.read(size))
                 stage = 'session'
-                self.server.service.drags.accept(sender, action, data)
+                result = self.server.service.drags.accept(sender, action, data)
                 self.server.service.drags.trace('accepted', data.get('id'), action)
-                self.reply(200, {'ok': True})
+                self.reply(200, {'ok': True, **(result or {})})
             except (TransferError, ValueError, KeyError, TypeError) as error:
                 code = getattr(error, 'code', stage + '-invalid')
                 self.server.service.drags.trace('rejected',
@@ -187,7 +187,7 @@ class Handler(BaseHTTPRequestHandler):
         except (TransferError, OSError):
             self.reply(409, {"error": "源文件不可用或已发生变化，请重新复制"})
             return
-        size = offer.stamps[file_id][2]
+        size = offer.file_size(file_id)
         self.send_response(200)
         self.send_header("Content-Type", "application/octet-stream")
         self.send_header("Content-Length", str(size))
@@ -224,19 +224,18 @@ class Service:
             data = json.loads(self.config_path.read_text())
             self.device_id, self.name, self.peers = data["id"], data["name"], data["peers"]
             self.paused = data.get("paused", False)
-            self.auto_receive = data.get("auto_receive", True)
             self.validated_settings()
         else:
             self.device_id = uuid.uuid4().hex
             self.name = (name or socket.gethostname().split(".")[0])[:80]
             self.peers = {}
             self.paused = False
-            self.auto_receive = True
         self.endpoint = None
         self.offer = None
         self.revision = 0
         self.receive_generation = 0
         self.events = queue.Queue()
+        self.event_wakeup = None
         self.seen, self.online = {}, {}
         self.invite = None
         self.invite_expiry = 0
@@ -264,11 +263,13 @@ class Service:
     def save(self):
         with self.lock:
             atomic_json(self.config_path, {"id": self.device_id, "name": self.name,
-                        "peers": self.peers, "paused": self.paused,
-                        "auto_receive": self.auto_receive})
+                        "peers": self.peers, "paused": self.paused})
 
     def emit(self, kind, **data):
         self.events.put({"kind": kind, **data})
+        wakeup = self.event_wakeup
+        if wakeup is not None:
+            wakeup()
 
     def start(self, host="0.0.0.0", port=24820, advertise_host="127.0.0.1", polling=True):
         self.server = Server((host, port), self)
@@ -400,7 +401,7 @@ class Service:
             self.save()
         self.emit("paused", paused=self.paused)
 
-    def clipboard_changed(self, paths=None):
+    def clipboard_changed(self, content=None):
         with self.lock:
             self.revision += 1
             revision = self.revision
@@ -408,19 +409,20 @@ class Service:
             self.build_cancel.set()
             self.receive_cancel.set()
             self.build_cancel = cancel = threading.Event()
-        if not paths or self.paused or not self.peers:
+        if not content or self.paused or not self.peers:
             return None
-        return self.work_pool.submit(self.prepare, list(paths), revision, cancel)
+        return self.work_pool.submit(self.prepare, content if isinstance(content, bytes) else list(content),
+                                     revision, cancel)
 
-    def prepare(self, paths, revision, cancel):
+    def prepare(self, content, revision, cancel):
         self.emit("preparing")
         try:
-            offer = build_offer(paths, cancel)
+            offer = build_image_offer(content) if isinstance(content, bytes) else build_offer(content, cancel)
             with self.lock:
                 if revision != self.revision or self.paused:
                     return
                 self.offer = offer
-            self.emit("offered", count=len(paths), total=offer.manifest["total_bytes"])
+            self.emit("offered", count=len(offer.manifest["roots"]), total=offer.manifest["total_bytes"])
         except Cancelled:
             pass
         except (TransferError, OSError) as error:
@@ -467,7 +469,7 @@ class Service:
                 changed = not self.online.get(ident, False)
                 self.online[ident] = True
                 receive = (manifest is not None and previous != offer_id and
-                           previous != "first-poll" and not self.paused and self.auto_receive)
+                           previous != "first-poll" and not self.paused)
             if changed:
                 self.emit("peers")
             if receive:
@@ -522,7 +524,8 @@ class Service:
                         generation != self.receive_generation or cancel.is_set()):
                     return
             self.emit("ready", paths=[str(p) for p in paths], revision=revision,
-                      generation=generation, peer=peer["name"], offer_id=manifest["id"])
+                      generation=generation, peer=peer["name"], offer_id=manifest["id"],
+                      image=manifest.get("clipboard_image", False))
         except Cancelled:
             self.emit("cancelled", generation=generation)
         except (TransferError, OSError, HTTPException, ValueError) as error:

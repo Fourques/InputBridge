@@ -3,10 +3,11 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 import uuid
 
-from inputbridge.drag_transfer import commit_native_destination
-from inputbridge.files import TransferError
+from inputbridge.drag_transfer import commit_native_destination, retire_move_sources
+from inputbridge.files import TransferError, build_offer
 from inputbridge.security import request_json
 from inputbridge.service import Service
 
@@ -118,3 +119,65 @@ class DragTests(unittest.TestCase):
         self.assertTrue(self.b.drags.incoming[ident]['released'])
         self.b.drags.send(self.a.device_id, 'cancel', {'id': ident})
         self.assertNotIn(ident, self.a.drags.outgoing)
+
+    def test_return_revokes_old_download_but_allows_a_new_handoff(self):
+        ident, manifest = self.offer()
+        with self.assertRaises(TransferError):
+            self.b.drags.send(self.a.device_id, 'return-up', {'id': ident})
+        self.b.drags.send(self.a.device_id, 'return', {'id': ident})
+        self.assertIsNone(self.a.drags.source_offer(manifest['id'], self.b.device_id))
+        with self.assertRaises(TransferError):
+            self.b.drags.send(self.a.device_id, 'return', {'id': ident})
+        new_id, new_manifest = self.offer()
+        self.b.drags.send(self.a.device_id, 'return-up', {'id': ident})
+        self.assertNotIn(ident, self.a.drags.outgoing)
+        self.assertIn(new_id, self.a.drags.outgoing)
+        self.assertIsNotNone(self.a.drags.source_offer(new_manifest['id'], self.b.device_id))
+
+    def test_move_receipt_requires_the_exact_handoff_and_is_idempotent(self):
+        ident, manifest = self.offer()
+        receipt = {'id': ident, 'offer': manifest['id']}
+        with self.assertRaisesRegex(TransferError, 'move-mismatch'):
+            self.b.drags.send(self.a.device_id, 'commit-move', receipt)
+        self.a.drags.handed_off(ident, self.b.device_id)
+        with self.assertRaisesRegex(TransferError, 'move-mismatch'):
+            self.b.drags.send(self.a.device_id, 'commit-move', {**receipt, 'offer': uuid.uuid4().hex})
+        with patch('inputbridge.drag_transfer.retire_move_sources') as retire:
+            self.assertEqual(self.b.drags.confirm_move(self.a.device_id, ident, receipt['offer']), 'moved')
+            self.assertEqual(self.b.drags.confirm_move(self.a.device_id, ident, receipt['offer']), 'moved')
+            retire.assert_called_once()
+
+    @unittest.skipUnless(sys.platform in ('darwin', 'linux'), 'native verified source retirement')
+    def test_changed_source_and_failed_trash_leave_originals_in_place(self):
+        with patch('PySide6.QtCore.QFile') as trash:
+            offer = build_offer([self.folder])
+            changed = self.folder / 'data.bin'
+            changed.write_bytes(b'subsequent edit')
+            with self.assertRaisesRegex(TransferError, '源文件发生变化'):
+                retire_move_sources(offer)
+            trash.assert_not_called()
+            current = build_offer([self.folder])
+            trash.return_value.moveToTrash.return_value = False
+            with self.assertRaisesRegex(TransferError, '废纸篓'):
+                retire_move_sources(current)
+            self.assertEqual(changed.read_bytes(), b'subsequent edit')
+            self.assertEqual(list(self.root.glob('.inputbridge-move-*')), [])
+
+    def test_returned_handoff_cannot_be_used_to_move_source(self):
+        ident, manifest = self.offer()
+        self.a.drags.handed_off(ident, self.b.device_id)
+        self.b.drags.send(self.a.device_id, 'return', {'id': ident})
+        with self.assertRaisesRegex(TransferError, 'move-mismatch'):
+            self.b.drags.send(self.a.device_id, 'commit-move', {'id': ident, 'offer': manifest['id']})
+        self.assertTrue(self.folder.exists())
+
+    def test_same_gesture_reuses_snapshot_with_new_transfer_identity(self):
+        ident, manifest = self.offer()
+        outgoing = self.a.drags.outgoing[ident]['offer']
+        self.b.drags.send(self.a.device_id, 'return', {'id': ident})
+        with patch('inputbridge.drag_transfer.build_offer') as rebuild:
+            fresh = self.a.drags.prepare(self.b.device_id, [self.folder], uuid.uuid4().hex, previous=outgoing)
+            rebuild.assert_not_called()
+        self.assertNotEqual(fresh['id'], manifest['id'])
+        self.assertEqual(fresh['entries'], manifest['entries'])
+        self.assertIsNone(self.a.drags.source_offer(manifest['id'], self.b.device_id))

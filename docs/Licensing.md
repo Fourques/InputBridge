@@ -7,7 +7,7 @@
 | InputBridge Python 应用 | 原创 GPL-3.0-or-later；通过子进程、配置和本地消息控制内置核心，不将 Deskflow 代码链接进 Python 进程 | 保留自身 GPLv3 或后续版本选择；和使用 GPLv2 的原生核心分别声明 |
 | Deskflow 内置核心 | 固定 v1.27.0 提交；核心示例文件声明 GPL-2.0-only WITH LicenseRef-OpenSSL-Exception；上游带不同许可的文件按原 SPDX 保留。用户可从源码、生成器和打包脚本重建改版 | 不用项目根 GPLv3 覆盖 Deskflow，也不用 OpenSSL 例外推导 Qt 许可。本项目原创核心补丁提供 MIT 路径，发布前确认贡献授权 |
 | Qt 6.7.3 | 早期 Mac 包和 Linux 参考 wheel 的 QtCore 实测内嵌 Apache-2.0 Tika MIME 数据。新打包流程给 Mac 和 Linux 核心分别附上一套以关闭内嵌数据库配置编译的 QtBase。界面仍由 PySide6 提供 Qt | 执行私有 Qt 构建并验证最终装载路径。发布二进制还需核对实际启用的其他 Qt 组件、平台插件及版权和对应源码 |
-| TwinDesk | 已比对固定提交，项目内 `Drag.swift` 与上游逐字节一致；另有独立 Swift 入口与边缘捕获。构建后的 helper 只链接系统框架和 Swift 运行库，没有链接 Qt 或 Deskflow | 保留原版权及 GPLv3，交付完整 Swift helper 源码和编译配方。这部分无需保留独立 TwinDesk 安装 |
+| TwinDesk | `Drag.swift` 衍生自固定提交。本地修改了拖放会话、松手清理、文件承诺与预览，原文件和改版各有独立校验值。构建后的 helper 链接 macOS 系统框架和 Swift 运行库 | 保留原版权及 GPLv3，交付完整 Swift helper 源码和编译配方。独立 Swift 入口和边缘捕获也随包交付 |
 
 GPLv2-only 与仅有 GPLv3/LGPLv3 的库存在许可障碍；动态链接本身不会化解它。但实际 Qt 6.7.3 的 [QtCore](https://raw.githubusercontent.com/qt/qtbase/v6.7.3/src/corelib/kernel/qobject.cpp)、[QtWidgets](https://raw.githubusercontent.com/qt/qtbase/v6.7.3/src/widgets/kernel/qapplication.cpp) 和 [QtGui](https://raw.githubusercontent.com/qt/qtbase/v6.7.3/src/gui/kernel/qguiapplication.cpp) 源码给出 GPLv2 选择。这与仅看到 PyPI wheel 的 LGPL 标签是两件事。参见 [GNU 兼容性表](https://www.gnu.org/licenses/gpl-faq.html#AllCompatibility)和 [Qt 许可说明](https://www.qt.io/development/open-source-lgpl-obligations)。进程隔离是当前判断的重要事实，不是对所有 IPC 架构的自动豁免。
 

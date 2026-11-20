@@ -1,13 +1,20 @@
-"""Only file clipboard objects. Text, images and input remain with Deskflow."""
+"""Native file and raster clipboard objects; text stays with the input core."""
 import ctypes
 from pathlib import Path
 import sys
 
 from PySide6.QtCore import QObject, QMimeData, QTimer, QUrl, Signal
-from PySide6.QtGui import QClipboard, QGuiApplication
+from PySide6.QtGui import QClipboard, QGuiApplication, QImage, QPixmap
+
+from .images import decode_raster, png_bytes
 
 ORIGIN_MIME = "application/x-inputbridge-origin"
 X11_PROTOCOL_FORMATS = {"TARGETS", "MULTIPLE", "TIMESTAMP", "SAVE_TARGETS"}
+GNOME_FILES = "x-special/gnome-copied-files"
+RASTER_MIME = (
+    ("image/png", b"png"), ("image/jpeg", b"jpeg"), ("image/webp", b"webp"),
+    ("image/tiff", b"tiff"), ("image/bmp", b"bmp"), ("image/gif", b"gif"),
+)
 
 
 class MacPasteboardCounter:
@@ -34,7 +41,7 @@ def file_mime(paths, offer_id):
     urls = [QUrl.fromLocalFile(str(Path(p).absolute())) for p in paths]
     mime.setUrls(urls)
     # Nautilus has an explicit copy/cut MIME in addition to text/uri-list.
-    mime.setData("x-special/gnome-copied-files", ("copy\n" + "\n".join(u.toString(QUrl.FullyEncoded) for u in urls)).encode())
+    mime.setData(GNOME_FILES, ("copy\n" + "\n".join(u.toString(QUrl.FullyEncoded) for u in urls)).encode())
     mime.setData(ORIGIN_MIME, offer_id.encode())
     return mime
 
@@ -76,18 +83,44 @@ class FileClipboard(QObject):
         if self.awaiting_receive and not formats.difference(X11_PROTOCOL_FORMATS):
             return
         self.awaiting_receive = False
-        paths = []
-        if mime is not None and mime.hasUrls():
-            urls = mime.urls()
-            # A URL copied from a browser is never interpreted as a file request.
-            if urls and all(u.isLocalFile() and u.host() in ("", "localhost") for u in urls):
-                paths = [u.toLocalFile() for u in urls]
-        self.changed.emit(paths or None)
+        self.changed.emit(self.content(mime) if mime is not None else None)
 
-    def publish(self, paths, offer_id):
+    @staticmethod
+    def content(mime):
+        urls = mime.urls() if mime.hasUrls() else []
+        if not urls and mime.hasFormat(GNOME_FILES):
+            lines = bytes(mime.data(GNOME_FILES)).splitlines()
+            if lines and lines[0] in (b"copy", b"cut"):
+                urls = [QUrl.fromEncoded(line) for line in lines[1:] if line]
+        if urls and all(url.isLocalFile() and url.host() in ("", "localhost") for url in urls):
+            return [url.toLocalFile() for url in urls]
+
+        for media, image_format in RASTER_MIME:
+            if mime.hasFormat(media):
+                data = png_bytes(decode_raster(bytes(mime.data(media)), image_format))
+                if data:
+                    return data
+        if mime.hasImage():
+            image = mime.imageData()
+            if isinstance(image, QPixmap):
+                image = image.toImage()
+            if isinstance(image, QImage):
+                return png_bytes(image) or None
+        return None
+
+    def publish(self, paths, offer_id, image_required=False):
         if not all(Path(p).exists() for p in paths):
             raise FileNotFoundError("接收的文件不可用，请重新复制")
-        self.clipboard.setMimeData(file_mime(paths, offer_id), QClipboard.Clipboard)
+        mime = file_mime(paths, offer_id)
+        if len(paths) == 1:
+            image = decode_raster(paths[0])
+            data = png_bytes(image)
+            if data:
+                mime.setImageData(image)
+                mime.setData("image/png", data)
+            elif image_required:
+                raise OSError("接收的图片无法读取，请重新复制")
+        self.clipboard.setMimeData(mime, QClipboard.Clipboard)
         self.awaiting_receive = False
 
     def retire_previous_receive(self):

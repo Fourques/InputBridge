@@ -5,9 +5,11 @@ import tempfile
 import unittest
 
 from PySide6.QtCore import QMimeData, QUrl
+from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication
 
-from inputbridge.clipboard import FileClipboard, ORIGIN_MIME
+from inputbridge.clipboard import FileClipboard, GNOME_FILES, ORIGIN_MIME
+from inputbridge.images import png_bytes
 
 
 class ClipboardTests(unittest.TestCase):
@@ -44,6 +46,38 @@ class ClipboardTests(unittest.TestCase):
         mime.setUrls([QUrl("https://example.com/report.pdf")])
         self.clipboard.setMimeData(mime)
         self.assertIsNone(self.events[-1])
+
+    def test_browser_image_with_web_url_and_qt_image_both_emit_png(self):
+        image = QImage(20, 12, QImage.Format_ARGB32)
+        image.fill(0x8050FF20)
+        raw = png_bytes(image)
+        browser = QMimeData()
+        browser.setUrls([QUrl("https://example.com/image.png")])
+        browser.setData("image/png", raw)
+        self.clipboard.setMimeData(browser)
+        self.assertEqual(QImage.fromData(self.events[-1]), image)
+        app = QMimeData()
+        app.setImageData(image)
+        self.clipboard.setMimeData(app)
+        self.assertEqual(QImage.fromData(self.events[-1]), image)
+
+    def test_copied_image_file_preserves_url_and_native_image_without_echo(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "测试.png"
+            image = QImage(12, 12, QImage.Format_ARGB32)
+            image.fill(0xFF50FF20)
+            path.write_bytes(png_bytes(image))
+            mime = QMimeData()
+            mime.setData(GNOME_FILES, b"copy\n" + bytes(QUrl.fromLocalFile(str(path)).toEncoded()))
+            mime.setImageData(image)
+            self.clipboard.setMimeData(mime)
+            self.assertEqual([Path(p) for p in self.events.pop()], [path])
+            self.adapter.publish([path], "remote", image_required=True)
+            result = self.clipboard.mimeData()
+            self.assertEqual(Path(result.urls()[0].toLocalFile()), path)
+            self.assertEqual(result.imageData(), image)
+            self.assertEqual(QImage.fromData(result.data("image/png")), image)
+            self.assertFalse(self.events)
 
     def test_user_file_copy_emits_paths(self):
         mime = QMimeData()

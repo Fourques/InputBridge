@@ -6,7 +6,7 @@ import queue
 import subprocess
 import sys
 
-from PySide6.QtCore import Qt, QTimer, QSize, QEvent, QObject
+from PySide6.QtCore import Qt, QTimer, QSize, QEvent, QObject, Signal
 from PySide6.QtGui import QAction, QColor, QFont, QIcon, QKeySequence, QPainter, QPen, QPixmap
 from PySide6.QtNetwork import QNetworkInterface, QAbstractSocket
 from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QFrame, QHBoxLayout,
@@ -181,6 +181,7 @@ class Switch(QCheckBox):
 
 
 class Window(QMainWindow):
+    events_ready = Signal()
     def __init__(self, service, clipboard_enabled=True):
         super().__init__()
         self.quitting = False
@@ -313,15 +314,15 @@ class Window(QMainWindow):
         if QSystemTrayIcon.isSystemTrayAvailable():
             self.tray.show()
         self.refresh_peers()
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.drain_events)
-        self.timer.start(100)
         self.engine_timer = QTimer(self)
         self.engine_timer.timeout.connect(self.refresh_engine)
         self.engine_timer.start(15000)
         QTimer.singleShot(0, self.refresh_engine)
         from .drag_bridge import DragBridge
         self.drag = DragBridge(self)
+        self.events_ready.connect(self.drain_events, Qt.QueuedConnection)
+        self.service.event_wakeup = self.events_ready.emit
+        self.events_ready.emit()
 
     def refresh_engine(self):
         from PySide6.QtCore import QProcess
@@ -450,13 +451,13 @@ class Window(QMainWindow):
                 return
             if self.clipboard:
                 try:
-                    self.clipboard.publish(event["paths"], event["offer_id"])
+                    self.clipboard.publish(event["paths"], event["offer_id"], event.get("image", False))
                     self.service.clipboard_changed(None)
                 except OSError as error:
                     self.apply_event({"kind": "error", "message": str(error)})
                     return
             self.transfer.show()
-            self.transfer_title.setText("已接收 %s 项" % len(event["paths"]))
+            self.transfer_title.setText("已接收图片" if event.get("image") else "已接收 %s 项" % len(event["paths"]))
             self.transfer_hint.setText("可以粘贴")
             self.progress.hide()
             self.cancel.hide()
@@ -479,6 +480,7 @@ class Window(QMainWindow):
 
     def quit_app(self):
         self.quitting = True
+        self.service.event_wakeup = None
         self.drag.stop()
         self.engine.stop()
         self.tray.hide()

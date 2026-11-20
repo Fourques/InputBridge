@@ -6,5 +6,6 @@
   "sha256": "0dabc8ea5c5d397705317208f8abd22ed847d708d406c812d7940b2f094a7017",
   "license": "GPL-3.0-only",
   "copyright": "2026 inukaasith",
-  "integration": "Verbatim file; InputBridge uses separate Swift entry point and edge capture."
+  "local_sha256": "7725479bcac4981642c5d89c6d62d339628ba1f82b4216b97378e32d4d003ba4",
+  "integration": "Derived from the pinned file with drag session scoping, button release, file promise cleanup and previews. InputBridge uses a separate Swift entry point and edge capture."
 }

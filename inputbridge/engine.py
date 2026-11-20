@@ -215,6 +215,7 @@ class InputEngine(QObject):
         environment = core_environment(binary)
         mode, settings = write_core_settings(self.service, layout)
         environment.insert('INPUTBRIDGE_EVENTS', '1')
+        environment.insert('INPUTBRIDGE_ASSET_CLIPBOARD', '1')
         environment.insert('INPUTBRIDGE_ENGINE_HOME', str(settings.parent))
         if sys.platform == 'darwin':
             bits, _ = self.wheel_policy(scroll.load(self.service.profile))
