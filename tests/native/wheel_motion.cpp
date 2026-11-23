@@ -18,6 +18,14 @@ int main()
   assert(inputbridge::directed(120, away.has(WheelOptions::AwayY)) == -120);
   assert(inputbridge::directed(120, away.has(WheelOptions::AwayX)) == 120);
 
+  // A mouse press disables smoothing, not the configured direction.
+  using inputbridge::WheelHandling;
+  using inputbridge::wheelHandling;
+  assert(wheelHandling(true, false, false) == WheelHandling::AllowSmoothing);
+  assert(wheelHandling(true, false, true) == WheelHandling::DirectionOnly);
+  assert(wheelHandling(true, true, true) == WheelHandling::Native);
+  assert(wheelHandling(false, false, true) == WheelHandling::Native);
+
   // Smooth without changing total distance or sign on either axis.
   WheelMotion wheel;
   const double start = 1;

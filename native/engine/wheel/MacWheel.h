@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Runs on InputBridge's existing Quartz event-tap thread. No second input tap.
 #pragma once
+#include "InputBridgeMacWheelDelta.h"
 #include "InputBridgeWheelMotion.h"
 #include "deskflow/ipc/CoreIpcServer.h"
 #include <ApplicationServices/ApplicationServices.h>
@@ -29,17 +30,20 @@ public:
         value(event, kCGEventSourceUnixProcessID) != 0 || generated(event));
   }
 
-  static bool gestureInProgress(CGEventRef event)
+  static WheelHandling handling(CGEventRef event)
   {
     const auto modifiers = kCGEventFlagMaskControl | kCGEventFlagMaskCommand |
                            kCGEventFlagMaskAlternate | kCGEventFlagMaskShift;
-    return (CGEventGetFlags(event) & modifiers) ||
-           CGEventSourceButtonState(kCGEventSourceStateHIDSystemState, kCGMouseButtonLeft) ||
-           CGEventSourceButtonState(kCGEventSourceStateHIDSystemState, kCGMouseButtonRight);
+    const bool physical = eligible(event);
+    const bool modified = physical && (CGEventGetFlags(event) & modifiers) != 0;
+    const bool held = physical && !modified &&
+        (CGEventSourceButtonState(kCGEventSourceStateHIDSystemState, kCGMouseButtonLeft) ||
+         CGEventSourceButtonState(kCGEventSourceStateHIDSystemState, kCGMouseButtonRight));
+    return wheelHandling(physical, modified, held);
   }
 
   // Returns true if the raw event has been replaced by scheduled pixel events.
-  bool local(CGEventRef event, WheelOptions options, const std::atomic_bool &onMac,
+  bool local(CGEventRef event, WheelOptions options, bool allowSmoothing, const std::atomic_bool &onMac,
              const std::atomic_uint &epoch)
   {
     const auto x = static_cast<int32_t>(value(event, kCGScrollWheelEventDeltaAxis2));
@@ -48,7 +52,7 @@ public:
     const bool smoothY = y && options.has(WheelOptions::SmoothY);
     const auto generation = epoch.load();
     // Mixed-axis events with an unsmoothed axis stay in their original units.
-    if ((smoothX || smoothY) && (!x || smoothX) && (!y || smoothY) &&
+    if (allowSmoothing && (smoothX || smoothY) && (!x || smoothX) && (!y || smoothY) &&
         !value(event, kCGScrollWheelEventDeltaAxis3)) {
       if (m_bits != options.bits || m_epoch != generation)
         cancel();
@@ -67,11 +71,11 @@ public:
     }
     cancel();
     if (options.has(WheelOptions::ReverseY))
-      reverse(event, kCGScrollWheelEventDeltaAxis1, kCGScrollWheelEventPointDeltaAxis1,
-              kCGScrollWheelEventFixedPtDeltaAxis1);
+      reverseWheelAxis(event, kCGScrollWheelEventDeltaAxis1, kCGScrollWheelEventPointDeltaAxis1,
+                       kCGScrollWheelEventFixedPtDeltaAxis1);
     if (options.has(WheelOptions::ReverseX))
-      reverse(event, kCGScrollWheelEventDeltaAxis2, kCGScrollWheelEventPointDeltaAxis2,
-              kCGScrollWheelEventFixedPtDeltaAxis2);
+      reverseWheelAxis(event, kCGScrollWheelEventDeltaAxis2, kCGScrollWheelEventPointDeltaAxis2,
+                       kCGScrollWheelEventFixedPtDeltaAxis2);
     return false;
   }
 
@@ -89,12 +93,6 @@ private:
   static int64_t value(CGEventRef event, CGEventField field)
   {
     return CGEventGetIntegerValueField(event, field);
-  }
-  static void reverse(CGEventRef event, CGEventField line, CGEventField pixels, CGEventField fixed)
-  {
-    CGEventSetIntegerValueField(event, line, -value(event, line));
-    CGEventSetIntegerValueField(event, pixels, -value(event, pixels));
-    CGEventSetDoubleValueField(event, fixed, -CGEventGetDoubleValueField(event, fixed));
   }
   static double seconds()
   {

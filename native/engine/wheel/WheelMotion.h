@@ -25,6 +25,16 @@ inline bool physicalWheel(bool continuous, bool phase, bool momentum, bool synth
   return !continuous && !phase && !momentum && !synthesized;
 }
 
+enum class WheelHandling { Native, DirectionOnly, AllowSmoothing };
+
+inline WheelHandling wheelHandling(bool physical, bool modified, bool buttonHeld)
+{
+  if (!physical || modified)
+    return WheelHandling::Native;
+  // Keep configured direction during selection without generating extra scroll events.
+  return buttonHeld ? WheelHandling::DirectionOnly : WheelHandling::AllowSmoothing;
+}
+
 inline int directed(int value, bool flip)
 {
   return flip ? -std::max(value, INT32_MIN + 1) : value;

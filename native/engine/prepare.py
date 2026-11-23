@@ -336,7 +336,7 @@ bool OSXClipboard::synchronize()''')
 ''')
     replace(platform + 'XWindowsComputer.cpp', '    return Clipboard::copy(m_clipboard[id], clipboard, timestamp);',
             '    return Clipboard::copy(m_clipboard[id], clipboard, timestamp, textOnly);')
-    for name in ['WheelMotion.h', 'MacWheel.h']:
+    for name in ['WheelMotion.h', 'MacWheelDelta.h', 'MacWheel.h']:
         add(platform + 'InputBridge' + name, (HERE / 'wheel' / name).read_text())
     replace(platform + 'OSXComputer.h', '#include <bitset>',
             '#include "platform/InputBridgeMacWheel.h"\n#include <bitset>')
@@ -359,16 +359,19 @@ bool OSXClipboard::synchronize()''')
     break;''',
             '''  case kCGEventScrollWheel: {
     using inputbridge::MacWheel;
+    using inputbridge::WheelHandling;
     using inputbridge::WheelOptions;
     if (!event) break;
     if (MacWheel::generated(event))
       return computer->m_isOnComputer && MacWheel::sameFocus(event, computer->m_wheelEpoch.load()) ? event : nullptr;
     const WheelOptions options{deskflow::core::ipc::CoreIpcServer::instance().wheelOptions()};
     const bool local = computer->m_isOnComputer;
-    const bool adjust = (local ? options.local() : options.away()) &&
-        MacWheel::eligible(event) && !MacWheel::gestureInProgress(event);
+    const auto handling = (local ? options.local() : options.away()) ?
+        MacWheel::handling(event) : WheelHandling::Native;
+    const bool adjust = handling != WheelHandling::Native;
     if (adjust && local) {
-      if (computer->m_inputbridgeWheel.local(event, options, computer->m_isOnComputer, computer->m_wheelEpoch))
+      if (computer->m_inputbridgeWheel.local(event, options, handling == WheelHandling::AllowSmoothing,
+                                            computer->m_isOnComputer, computer->m_wheelEpoch))
         return nullptr;
       // A locally adjusted wheel should never be reinterpreted by a new peer.
       return event;

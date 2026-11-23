@@ -1,6 +1,6 @@
 # 首次开源发布清单
 
-v0.2.0a2 延续源码预览。可在 **Apple Silicon macOS + x86_64 Linux X11** 本地构建和试用。Windows、Wayland、Intel Mac 和 Linux 主控需分别完成实机验收。
+v0.2.0a3 延续源码预览。可在 **Apple Silicon macOS + x86_64 Linux X11** 本地构建和试用。Windows、Wayland、Intel Mac 和 Linux 主控需分别完成实机验收。
 
 | 项目 | 当前准备 | 放行条件 |
 | --- | --- | --- |

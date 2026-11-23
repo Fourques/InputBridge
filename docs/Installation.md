@@ -1,6 +1,6 @@
 # 安装与配对
 
-以下说明适用于从 v0.2.0a2 源码构建的开发包。先看[打包流程](Packaging.md)，在单独目录准备开发包。
+以下说明适用于从 v0.2.0a3 源码构建的开发包。先看[打包流程](Packaging.md)，在单独目录准备开发包。
 
 ## macOS
 
@@ -13,7 +13,7 @@
 下列步骤适用于构建得到的开发 `-linux-…-local.tar.gz`，不是通用安装包。解压到个人目录（密钥和缓存不应在多人可读目录），在已登录的 **X11** 图形桌面内执行：
 
 ```sh
-cd InputBridge-0.2.0a2-linux-x86_64
+cd InputBridge-0.2.0a3-linux-x86_64
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.lock.txt
 ./packaging/start-linux.sh
